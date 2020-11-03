@@ -115,7 +115,7 @@ class Bohamiann(BaseModel):
         :return: Tuple containing current network weight values
         """
         return tuple(
-            np.asarray(torch.tensor(parameter.data).numpy())
+            np.asarray(parameter.data.clone().detach().numpy())
             for parameter in self.model.parameters()
         )
 
@@ -136,7 +136,7 @@ class Bohamiann(BaseModel):
               num_steps: int = 13000,
               keep_every: int = 100,
               num_burn_in_steps: int = 3000,
-              lr: float = 1e-5,
+              lr: float = 1e-2,
               batch_size=20,
               epsilon: float = 1e-10,
               mdecay: float = 0.05,
@@ -173,13 +173,18 @@ class Bohamiann(BaseModel):
             " with % dimensions each." % (num_datapoints, input_dimensionality)
         )
         assert batch_size >= 1, "Invalid batch size. Batches must contain at least a single sample."
+        assert len(y_train.shape) == 1 or (len(y_train.shape) == 2 and y_train.shape[
+            1] == 1), "Targets need to be in vector format, i.e (N,) or (N,1)"
 
         if x_train.shape[0] < batch_size:
             logging.warning("Not enough datapoints to form a batch. Use all datapoints in each batch")
             batch_size = x_train.shape[0]
 
         self.X = x_train
-        self.y = y_train
+        if len(y_train.shape) == 2:
+            self.y = y_train[:, 0]
+        else:
+            self.y = y_train
 
         if self.do_normalize_input:
             logging.debug(
@@ -199,7 +204,7 @@ class Bohamiann(BaseModel):
 
         if self.do_normalize_output:
             logging.debug("Normalizing training labels to zero mean and unit variance.")
-            y_train_, self.y_mean, self.y_std = self.normalize_output(y_train)
+            y_train_, self.y_mean, self.y_std = self.normalize_output(self.y)
 
             if self.use_double_precision:
                 y_train_ = torch.from_numpy(y_train_).double()
@@ -284,7 +289,7 @@ class Bohamiann(BaseModel):
                         var = var.data.numpy()
                     else:
                         mu = f[:, 0].data.numpy()
-                        var = f[:, 1].data.numpy()
+                        var = np.exp(f[:, 1].data.numpy())
                     total_nll = -np.mean(norm.logpdf(y_train, loc=mu, scale=np.sqrt(var)))
                     total_mse = np.mean((y_train - mu) ** 2)
 
